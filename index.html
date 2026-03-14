@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SB Enterprise - Invoice Generator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            padding: 20px;
+            display: flex;
+            gap: 20px;
+        }
+        
+        /* Main Invoice Area */
+        .main-content {
+            flex: 1;
+        }
+
+        .invoice-container {
+            background-color: #ffffff;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 30px;
+            border: 1px solid #ccc;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            box-sizing: border-box;
+            display: block; /* Removed flex to prevent Chrome print bugs */
+        }
+        .invoice-container.pdf-mode {
+        border: none !important;
+        }
+
+        .invoice-header-title {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .invoice-header-title h2 { margin: 0; text-decoration: underline; font-size: 24px; }
+
+        .meta-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        .header-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            border: 1px solid #000;
+            margin-bottom: 15px;
+        }
+        .header-section { padding: 10px; font-size: 16px; } /* Matched size */
+        .header-section:first-child { border-right: 1px solid #000; }
+        
+        /* Table Styling - VERTICAL COLUMNS FIXED */
+        table { width: 100%; border-collapse: collapse; margin-bottom: 10px; border: 1px solid #000; }
+        th { border: 1px solid #000000; font-size: 13px; background-color: #f9f9f9; padding: 8px 5px; text-align: left; }
+        
+        /* Body Cells: Vertical lines only, no top/bottom lines */
+        #itemsBody td { 
+            border-left: 1px solid #000; 
+            border-right: 1px solid #000; 
+            border-top: none; 
+            border-bottom: none; 
+            padding: 5px; 
+            vertical-align: middle; 
+        }
+        
+        /* Fixed height for rows to keep bill size consistent */
+        #itemsBody tr { height: 40px; } 
+        
+        /* Footer styling - Restored borders to prevent Chrome's runaway line bug */
+        tfoot td { border: 1px solid #000; padding: 8px 5px; }
+        .totals-row td { border-top: 2px solid #000; font-weight: bold; }
+        .words-row td { border-top: 1px solid #000; font-size: 14px; }
+        
+        .footer-signatures {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            margin-top: 50px;
+            text-align: center;
+            font-size: 13px;
+        }
+        
+        /* Input styling */
+        input[type="text"], input[type="number"] {
+            width: 90%;
+            padding: 4px;
+            background: transparent;
+            border: 1px dashed #ccc;
+            font-family: Arial, sans-serif;
+            color: #000;
+        }
+        input:focus { outline: none; border-bottom: 1px solid #000; }
+        
+        /* TEXT SIZING ADJUSTMENTS */
+        input.desc { font-size: 16px; font-weight: bold; }
+        input.qty { font-size: 16px; font-weight: medium; }
+        input.rate { font-size: 16px; font-weight: medium; }
+        /* Matched Buyer details font to standard text */
+        #buyerName { 
+            font-size: 16px; 
+            font-weight: bold;
+                  /* This forces them to stack vertically */
+            margin-bottom: -35px; 
+        }
+        #buyerAddress1, #buyerAddress2{
+            font-size: 14px; 
+            font-weight: medium; 
+            margin-bottom: -35px; 
+        }
+        
+
+        /* HIDE NUMBER ARROWS (SPINNERS) */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+        
+        /* Controls & Sidebar */
+        .controls { text-align: center; margin-top: 20px; }
+        button { padding: 10px 15px; font-size: 14px; cursor: pointer; margin: 5px; background-color: #007bff; color: white; border: none; border-radius: 4px; }
+        button:hover { background-color: #0056b3; }
+        button.success { background-color: #28a745; }
+        button.success:hover { background-color: #1e7e34; }
+        
+        .sidebar {
+            width: 250px;
+            background: #fff;
+            padding: 15px;
+            border: 1px solid #ccc;
+            height: fit-content;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .sidebar h3 { margin-top: 0; font-size: 16px; border-bottom: 1px solid #eee; padding-bottom: 5px;}
+        .saved-invoice-item { padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 13px; }
+        .saved-invoice-item:hover { background-color: #f0f8ff; }
+
+        /* Print/PDF styling - Completely overriding layout to kill rendering bugs */
+        @media print {
+            @page { size: A4 portrait; margin: 0.5cm; } 
+            body { padding: 0; background-color: #fff; margin: 0; display: block !important; }
+            .sidebar, .controls { display: none !important; }
+            .main-content { display: block !important; }
+            .invoice-container { box-shadow: none; border: none; max-width: 100%; padding: 0; margin: 0; display: block !important; }
+            input { border: none !important; appearance: none; -webkit-appearance: none; }
+            ::-webkit-input-placeholder { color: transparent !important; }
+            :-moz-placeholder { color: transparent !important; }
+            ::-moz-placeholder { color: transparent !important; }
+            :-ms-input-placeholder { color: transparent !important; }
+        }
+        
+        /* PDF specific overrides */
+        .pdf-mode { padding: 0 !important; display: block !important; }
+        .pdf-mode .invoice-container { width: 800px; max-width: 800px; padding: 40px; display: block !important; }
+        .pdf-mode input { border: none !important; }
+        .pdf-mode ::-webkit-input-placeholder { color: transparent !important; }
+        .pdf-mode :-moz-placeholder { color: transparent !important; }
+        .pdf-mode ::-moz-placeholder { color: transparent !important; }
+        .pdf-mode :-ms-input-placeholder { color: transparent !important; }
+    </style>
+</head>
+<body>
+
+<div class="main-content">
+    <div class="invoice-container" id="invoiceWrap">
+        
+        <div class="invoice-header-title">
+            <h2>INVOICE</h2>
+        </div>
+
+        <div class="meta-info">
+            <div>Invoice No: <span id="invoiceNoDisplay">00001</span></div>
+            <div>Date: <span id="dateDisplay"></span></div>
+        </div>
+        
+        <div class="header-grid">
+            <div class="header-section">
+                <strong>SB Enterprise</strong><br>
+                Champandanga, Hooghly<br>
+                712401, West Bengal<br>
+                Mob - 8509461188
+            </div>
+            <div class="header-section">
+                <strong>Buyer Details:</strong><br>
+                <input type="text" id="buyerName" placeholder="Buyer Name"><br>
+                <input type="text" id="buyerAddress1" placeholder="Address Line 1"><br>
+                <input type="text" id="buyerAddress2" placeholder="Address Line 2 (City, Pin)">
+            </div>
+        </div>
+
+        <table id="invoiceTable">
+            <thead>
+                <tr>
+                    <th style="width: 5%;">Sl</th>
+                    <th style="width: 45%;">Description of Goods</th>
+                    <th style="width: 15%;">Quantity</th>
+                    <th style="width: 15%;">Rate</th>
+                    <th style="width: 5%;">per</th>
+                    <th style="width: 15%; text-align: right;">Amount</th>
+                </tr>
+            </thead>
+            <tbody id="itemsBody">
+                </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="5" style="text-align: right;"><strong>Round Off</strong></td>
+                    <td id="roundOffVal" style="text-align: right;">0.00</td>
+                </tr>
+                <tr class="totals-row">
+                    <td colspan="2" style="text-align: right;">Total Quantity: </td>
+                    <td id="totalQty" style="text-align: left; padding-left: 10px;"></td>
+                    <td colspan="2"></td>
+                    <td id="finalAmount" style="text-align: right;">₹ 0.00</td>
+                </tr>
+                <tr class="words-row">
+                    <td colspan="6">
+                        Amount Chargeable (in words): <br>
+                        <strong id="amountInWords">Indian Rupees Zero Only</strong>
+                        <div style="font-size: 10px; text-align: right; margin-top: 5px;">E. & O.E</div>
+                    </td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <div style="font-size: 11px; margin-top: 10px;">
+            <strong>Declaration:</strong><br>
+            We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.
+        </div>
+
+        <div class="footer-signatures">
+            <div>Customer's Seal and Signature</div>
+            <div>Prepared by</div>
+            <div>
+                <strong>for SB Enterprise</strong><br><br><br>
+                Authorised Signatory
+            </div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button class="success" onclick="saveAndNew()">💾 Save & Start New</button>
+        <button onclick="downloadPDF()">📥 Download PDF</button>
+        <button onclick="window.print()">🖨️ Print Bill</button>
+    </div>
+</div>
+
+<div class="sidebar">
+    <h3>Saved Invoices</h3>
+    <div id="savedList">
+        </div>
+</div>
+
+<script>
+    const MAX_ITEMS = 10;
+    let currentInvoiceNo = "";
+
+    // Convert numbers to words
+    function numberToWords(num) {
+        if (num === 0) return "Zero";
+        const a = ['','One ','Two ','Three ','Four ', 'Five ','Six ','Seven ','Eight ','Nine ','Ten ','Eleven ','Twelve ','Thirteen ','Fourteen ','Fifteen ','Sixteen ','Seventeen ','Eighteen ','Nineteen '];
+        const b = ['', '', 'Twenty','Thirty','Forty','Fifty', 'Sixty','Seventy','Eighty','Ninety'];
+        if ((num = num.toString()).length > 9) return 'overflow';
+        let n = ('000000000' + num).substr(-9).match(/^(\d{2})(\d{2})(\d{2})(\d{1})(\d{2})$/);
+        if (!n) return; let str = '';
+        str += (n[1] != 0) ? (a[Number(n[1])] || b[n[1][0]] + ' ' + a[n[1][1]]) + 'Crore ' : '';
+        str += (n[2] != 0) ? (a[Number(n[2])] || b[n[2][0]] + ' ' + a[n[2][1]]) + 'Lakh ' : '';
+        str += (n[3] != 0) ? (a[Number(n[3])] || b[n[3][0]] + ' ' + a[n[3][1]]) + 'Thousand ' : '';
+        str += (n[4] != 0) ? (a[Number(n[4])] || b[n[4][0]] + ' ' + a[n[4][1]]) + 'Hundred ' : '';
+        str += (n[5] != 0) ? ((str != '') ? 'and ' : '') + (a[Number(n[5])] || b[n[5][0]] + ' ' + a[n[5][1]]) : '';
+        return str.trim();
+    }
+
+    function setCurrentDate() {
+        const today = new Date();
+        const dd = String(today.getDate()).padStart(2, '0');
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const yyyy = today.getFullYear();
+        document.getElementById('dateDisplay').innerText = `${dd}/${mm}/${yyyy}`;
+    }
+
+    function generateInvoiceNo() {
+        let lastNo = localStorage.getItem('sb_last_invoice_no') || 0;
+        let nextNo = parseInt(lastNo) + 1;
+        currentInvoiceNo = String(nextNo).padStart(5, '0');
+        document.getElementById('invoiceNoDisplay').innerText = currentInvoiceNo;
+    }
+
+    function initRows() {
+        const tbody = document.getElementById('itemsBody');
+        tbody.innerHTML = '';
+        for (let i = 1; i <= MAX_ITEMS; i++) {
+            const tr = document.createElement('tr');
+            tr.id = 'row' + i;
+            tr.innerHTML = `
+                <td class="sl-col" style="text-align:center;"></td>
+                <td><input type="text" class="desc" placeholder="" oninput="calculate()"></td>
+                <td><input type="number" class="qty" placeholder="" oninput="calculate()"></td>
+                <td><input type="number" class="rate" placeholder="" oninput="calculate()"></td>
+                <td class="per-col"></td>
+                <td class="amount-col" style="text-align: right;"></td>
+            `;
+            tbody.appendChild(tr);
+        }
+    }
+
+    function calculate() {
+        let totalQty = 0;
+        let baseAmountSum = 0;
+
+        for (let i = 1; i <= MAX_ITEMS; i++) {
+            const row = document.getElementById('row' + i);
+            const descInput = row.querySelector('.desc').value.trim();
+            const qtyInput = row.querySelector('.qty').value;
+            const rateInput = row.querySelector('.rate').value;
+            
+            const qty = parseFloat(qtyInput) || 0;
+            const rate = parseFloat(rateInput) || 0;
+            const amount = qty * rate;
+
+            if (descInput === "" && qtyInput === "" && rateInput === "") {
+                row.querySelector('.sl-col').innerText = ''; 
+                row.querySelector('.per-col').innerText = ''; 
+                row.querySelector('.amount-col').innerText = ''; 
+            } else {
+                row.querySelector('.sl-col').innerText = i+'.'; 
+                row.querySelector('.per-col').innerText = 'PC'; 
+                
+                if (qtyInput !== "" || rateInput !== "") {
+                    row.querySelector('.amount-col').innerText = amount > 0 ? amount.toFixed(2) : '0.00';
+                } else {
+                    row.querySelector('.amount-col').innerText = ''; 
+                }
+            }
+
+            totalQty += qty;
+            baseAmountSum += amount;
+        }
+
+        let finalAmountInteger = Math.ceil(baseAmountSum);
+        let roundOffVal = finalAmountInteger - baseAmountSum;
+
+        if (baseAmountSum % 1 === 0) {
+            roundOffVal = 0;
+            finalAmountInteger = baseAmountSum;
+        }
+
+        document.getElementById('totalQty').innerText = totalQty > 0 ? totalQty.toFixed(2) : '';
+        document.getElementById('roundOffVal').innerText = roundOffVal.toFixed(2);
+        document.getElementById('finalAmount').innerText = finalAmountInteger > 0 ? '₹ ' + finalAmountInteger.toFixed(2) : '₹ 0.00';
+
+        let words = finalAmountInteger > 0 ? "Indian Rupees " + numberToWords(finalAmountInteger) + " Only" : "Indian Rupees Zero Only";
+        document.getElementById('amountInWords').innerText = words;
+    }
+
+    function saveAndNew() {
+        const invoiceData = {
+            invoiceNo: currentInvoiceNo,
+            date: document.getElementById('dateDisplay').innerText,
+            buyerName: document.getElementById('buyerName').value,
+            buyerAddress1: document.getElementById('buyerAddress1').value,
+            buyerAddress2: document.getElementById('buyerAddress2').value,
+            items: []
+        };
+
+        for (let i = 1; i <= MAX_ITEMS; i++) {
+            const row = document.getElementById('row' + i);
+            invoiceData.items.push({
+                desc: row.querySelector('.desc').value,
+                qty: row.querySelector('.qty').value,
+                rate: row.querySelector('.rate').value
+            });
+        }
+
+        let savedInvoices = JSON.parse(localStorage.getItem('sb_invoices')) || [];
+        const existingIndex = savedInvoices.findIndex(inv => inv.invoiceNo === currentInvoiceNo);
+        if(existingIndex >= 0) {
+            savedInvoices[existingIndex] = invoiceData;
+        } else {
+            savedInvoices.push(invoiceData);
+            localStorage.setItem('sb_last_invoice_no', parseInt(currentInvoiceNo));
+        }
+
+        localStorage.setItem('sb_invoices', JSON.stringify(savedInvoices));
+        alert(`Invoice ${currentInvoiceNo} Saved!`);
+        clearForm();
+        updateSavedList();
+    }
+
+    function clearForm() {
+        document.getElementById('buyerName').value = '';
+        document.getElementById('buyerAddress1').value = '';
+        document.getElementById('buyerAddress2').value = '';
+        initRows();
+        calculate();
+        generateInvoiceNo();
+        setCurrentDate();
+    }
+
+    function loadInvoice(invNo) {
+        let savedInvoices = JSON.parse(localStorage.getItem('sb_invoices')) || [];
+        const invoice = savedInvoices.find(inv => inv.invoiceNo === invNo);
+        
+        if(invoice) {
+            currentInvoiceNo = invoice.invoiceNo;
+            document.getElementById('invoiceNoDisplay').innerText = invoice.invoiceNo;
+            document.getElementById('dateDisplay').innerText = invoice.date;
+            document.getElementById('buyerName').value = invoice.buyerName;
+            document.getElementById('buyerAddress1').value = invoice.buyerAddress1;
+            document.getElementById('buyerAddress2').value = invoice.buyerAddress2;
+
+            for (let i = 0; i < MAX_ITEMS; i++) {
+                const row = document.getElementById('row' + (i+1));
+                if(invoice.items[i]) {
+                    row.querySelector('.desc').value = invoice.items[i].desc;
+                    row.querySelector('.qty').value = invoice.items[i].qty;
+                    row.querySelector('.rate').value = invoice.items[i].rate;
+                }
+            }
+            calculate();
+        }
+    }
+
+    function updateSavedList() {
+        let savedInvoices = JSON.parse(localStorage.getItem('sb_invoices')) || [];
+        const listDiv = document.getElementById('savedList');
+        listDiv.innerHTML = '';
+        
+        savedInvoices.sort((a,b) => parseInt(b.invoiceNo) - parseInt(a.invoiceNo));
+
+        savedInvoices.forEach(inv => {
+            const div = document.createElement('div');
+            div.className = 'saved-invoice-item';
+            div.innerHTML = `<strong>#${inv.invoiceNo}</strong> - ${inv.buyerName || 'No Name'} <br><small>${inv.date}</small>`;
+            div.onclick = () => loadInvoice(inv.invoiceNo);
+            listDiv.appendChild(div);
+        });
+    }
+    function downloadPDF() {
+      // 1. Scroll to the top-left to perfectly align the "camera"
+      window.scrollTo(0, 0);
+      
+      const element = document.getElementById('invoiceWrap');
+      
+      let rawBuyerName = document.getElementById('buyerName').value.trim();
+      let buyerName = rawBuyerName ? rawBuyerName.replace(/[^a-zA-Z0-9_-]/g, '_') : 'Customer';
+      
+      const rawDate = document.getElementById('dateDisplay').innerText;
+      const safeDate = rawDate.replace(/\//g, '-');
+      const filename = `${currentInvoiceNo}_${buyerName}_${safeDate}.pdf`;
+
+      if (typeof updateReportRows === 'function') {
+        updateReportRows();
+      }
+      
+      element.classList.add('pdf-mode');
+
+      // 2. Safely configure the PDF engine
+      const opt = {
+        margin: [5, 5, 5, 5], 
+        filename: filename,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: {
+          scale: 2, 
+          useCORS: true,
+          scrollX: 270,
+          scrollY: 0,
+          // Dynamically set the virtual window to be slightly wider than your invoice
+          windowWidth: element.scrollWidth + 100 
+        },
+        jsPDF: {
+          unit: 'mm',
+          format: 'a4',
+          orientation: 'portrait'
+        }
+      };
+
+      // 3. Use a tiny delay to let the browser visually update before capturing
+      setTimeout(() => {
+        html2pdf().set(opt).from(element).save().then(() => {
+          element.classList.remove('pdf-mode');
+        }).catch((err) => {
+          console.error("PDF Error:", err);
+          element.classList.remove('pdf-mode');
+          alert("Error generating PDF. Check console.");
+        });
+      }, 150); 
+    }
+
+    window.onload = function() {
+        setCurrentDate();
+        generateInvoiceNo();
+        initRows();
+        updateSavedList();
+    };
+</script>
+
+</body>
+</html>
