@@ -817,7 +817,18 @@
             }
         };
 
-        pdfMake.createPdf(docDefinition).download(filename);
+        // Use getBuffer + Blob approach (same as Export) — works on iPhone
+        pdfMake.createPdf(docDefinition).getBuffer(function(buffer) {
+            const blob = new Blob([buffer], { type: 'application/pdf' });
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
+            a.href     = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 3000);
+        });
     }
 
     // ══════════════════════════════════════════════════════════════
